@@ -1,0 +1,68 @@
+name: one-time-luffy-readme-sync
+on:
+  workflow_dispatch:
+    inputs:
+      target_token:
+        description: Write token for procedure2012/LUFFY
+        required: true
+        type: string
+      dry_run:
+        description: Validate without pushing
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+permissions:
+  contents: read
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TOKEN: ${{ inputs.target_token }}
+      DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - name: Verify delta and update remote README
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::${TOKEN}"
+          REPO="procedure2012/LUFFY"
+          BR="dev"
+          OLD="7463fefd0f55ae2ba0b919e06527588022893495"
+          PRSHA="7dc17f510d763636dde20b22c6a147edff20cdcc"
+          WORK="${GITHUB_WORKSPACE}/luffy-sync"
+          rm -rf "${WORK}"
+          git clone --no-checkout "https://github.com/${REPO}.git" "${WORK}"
+          cd "${WORK}"
+          git fetch --no-tags origin "${BR}:refs/remotes/origin/${BR}" main:refs/remotes/origin/main "refs/pull/6/head:refs/remotes/origin/pr6"
+          test "$(git rev-parse "origin/${BR}")" = "${OLD}"
+          test "$(git rev-parse origin/pr6)" = "${PRSHA}"
+          test "$(git rev-parse "${PRSHA}^")" = "${OLD}"
+          test "$(git diff --name-only origin/main...origin/${BR} | sort | tr '\n' ' ')" = "luffy/deepscaler/utils.py luffy/verl/verl/protocol.py "
+          test "$(git diff --name-only "${OLD}" "${PRSHA}" | tr '\n' ' ')" = "README.md "
+          git checkout -q "${OLD}"
+          cp README.md /tmp/old_README.md
+          git show "${PRSHA}:README.md" > /tmp/new_README.md
+          python3 "${GITHUB_WORKSPACE}/.github/scripts/validate_readme_sync.py" /tmp/old_README.md /tmp/new_README.md "${WORK}"
+          cp /tmp/new_README.md README.md
+          git add README.md
+          git -c user.name="todo-sync-bot" -c user.email="todo-sync-bot@users.noreply.github.com" commit -m "docs: sync README Complete TODO List with dev implementation" -m "Remove 11 implemented TODOs and update shifted line numbers; preserve title, ordering, and format."
+          NEW="$(git rev-parse HEAD)"
+          BLOB="$(git rev-parse HEAD:README.md)"
+          EXPECTED_BLOB="$(git rev-parse "${PRSHA}:README.md")"
+          test "${BLOB}" = "${EXPECTED_BLOB}"
+          echo "Prepared commit ${NEW}; README blob ${BLOB}"
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "Dry run successful; refusing to push."
+            exit 0
+          fi
+          B64="$(printf 'x-access-token:%s' "${TOKEN}" | base64 -w0)"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${B64}"
+          git push origin "HEAD:refs/heads/${BR}"
+          git ls-remote origin "refs/heads/${BR}" | grep "${NEW}"
+          echo "Pushed ${NEW} to ${REPO}:${BR}"
