@@ -24,6 +24,7 @@ jobs:
       TOKEN: ${{ inputs.target_token }}
       DRY_RUN: ${{ inputs.dry_run }}
     steps:
+      - uses: actions/checkout@v4
       - name: Verify delta and update remote README
         shell: bash
         run: |
